@@ -275,6 +275,18 @@ async function triggerDocumentProcessing(documentId: string) {
       console.warn("No auth session available for document processing");
     }
 
+    // Log the request details
+    console.log("Making request with headers:", {
+      "Content-Type": "application/json",
+      Authorization: session?.access_token
+        ? "Bearer token present"
+        : "No bearer token",
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        ? "API key present"
+        : "No API key",
+    });
+    console.log("Request body:", { documentId });
+
     // Make a POST request to the Supabase Edge Function
     const response = await fetch(functionUrl, {
       method: "POST",
@@ -287,6 +299,11 @@ async function triggerDocumentProcessing(documentId: string) {
       body: JSON.stringify({ documentId }),
     });
 
+    // Log the response status
+    console.log(
+      `Edge function response status: ${response.status} ${response.statusText}`
+    );
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Edge function error (${response.status}): ${errorText}`);
@@ -297,13 +314,21 @@ async function triggerDocumentProcessing(documentId: string) {
         .update({
           metadata: {
             processingStatus: "error",
-            processingError: `Processing failed to start: ${response.statusText}`,
+            processingError: `Processing failed to start: ${response.statusText}. Status: ${response.status}. Details: ${errorText}`,
             errorTimestamp: new Date().toISOString(),
           },
         })
         .eq("id", documentId);
 
       return false;
+    }
+
+    // Try to parse the response
+    try {
+      const responseData = await response.json();
+      console.log("Edge function response data:", responseData);
+    } catch (parseError) {
+      console.log("Could not parse response as JSON:", await response.text());
     }
 
     return true;

@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink } from "lucide-react";
+import { Download, ExternalLink, AlertCircle } from "lucide-react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 interface DocumentViewerProps {
   url: string;
@@ -23,13 +24,26 @@ export function DocumentViewer({
     // Check if the URL is valid when the component mounts
     const checkUrl = async () => {
       try {
+        console.log("Checking document URL:", url);
+
+        // Skip the check for relative URLs (they're handled by our API)
+        if (url.startsWith("/api/")) {
+          setIsLoading(false);
+          return;
+        }
+
         const response = await fetch(url, { method: "HEAD" });
         if (!response.ok) {
           setError(`Failed to load document: ${response.statusText}`);
+          console.error(
+            `Document URL check failed: ${response.status} ${response.statusText}`
+          );
         }
       } catch (err) {
-        setError("Failed to load document");
         console.error("Error checking document URL:", err);
+        setError(
+          "Failed to load document. The file may not exist or is inaccessible."
+        );
       } finally {
         setIsLoading(false);
       }
@@ -44,7 +58,30 @@ export function DocumentViewer({
     }
 
     if (error) {
-      return <div className="p-8 text-center text-red-500">{error}</div>;
+      return (
+        <div className="p-8">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error loading document</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+
+          <div className="mt-4 text-center">
+            <p className="mb-4">
+              The document could not be loaded. This may be because:
+            </p>
+            <ul className="list-disc text-left ml-8 mb-4">
+              <li>The document was not properly uploaded</li>
+              <li>The document storage is not accessible</li>
+              <li>The Supabase Edge Function is not deployed</li>
+            </ul>
+            <p>
+              Try uploading the document again or check your Supabase
+              configuration.
+            </p>
+          </div>
+        </div>
+      );
     }
 
     switch (fileType.toLowerCase()) {
@@ -54,6 +91,7 @@ export function DocumentViewer({
             src={`${url}#toolbar=0`}
             className="w-full h-[600px] border-0"
             title={fileName}
+            onError={() => setError("Failed to load PDF document")}
           />
         );
       case "docx":
@@ -93,6 +131,7 @@ export function DocumentViewer({
             src={url}
             className="w-full h-[600px] border-0"
             title={fileName}
+            onError={() => setError("Failed to load text document")}
           />
         );
       default:

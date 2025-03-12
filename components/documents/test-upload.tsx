@@ -50,6 +50,35 @@ export function TestUpload() {
     }
   };
 
+  const testDirectEdgeFunction = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setResult(null);
+
+      const response = await fetch("/api/test-edge-direct");
+      const data = await response.json();
+
+      setResult(data);
+
+      toast({
+        title: "Direct Edge Function Test",
+        description: `Status: ${data.status} (${data.ok ? "OK" : "Failed"})`,
+      });
+    } catch (err) {
+      console.error("Error testing direct edge function:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+
+      toast({
+        title: "Test Failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const testDirectUpload = async () => {
     if (!file) {
       toast({
@@ -155,6 +184,13 @@ export function TestUpload() {
             variant="outline"
           >
             Test Edge Function
+          </Button>
+          <Button
+            onClick={testDirectEdgeFunction}
+            disabled={loading}
+            variant="outline"
+          >
+            Test Direct Edge Function
           </Button>
           <Button onClick={testDirectUpload} disabled={loading || !file}>
             Test Direct Upload

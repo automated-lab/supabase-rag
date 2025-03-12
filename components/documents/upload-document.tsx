@@ -291,7 +291,8 @@ export function UploadDocument() {
 
       try {
         // Race between the actual upload and the timeout
-        await Promise.race([
+        console.log("Starting document upload for:", file.name);
+        const result = await Promise.race([
           uploadFileDocument({
             title,
             fileName: file.name,
@@ -299,6 +300,8 @@ export function UploadDocument() {
           }),
           timeoutPromise,
         ]);
+
+        console.log("Upload result:", result);
 
         // If we get here, the upload completed before the timeout
         setUploadStatus("success");
@@ -308,6 +311,8 @@ export function UploadDocument() {
           description: `${file.name} has been processed and added to the knowledge base`,
         });
       } catch (timeoutError) {
+        console.error("Upload error or timeout:", timeoutError);
+
         // If we hit the timeout, show a different message but don't treat it as an error
         if (
           timeoutError instanceof Error &&
@@ -349,9 +354,24 @@ export function UploadDocument() {
         error instanceof Error ? error.message : "Failed to upload document";
       setErrorMessage(errorMsg);
 
+      // Add a link to the test page for diagnostics
       toast({
         title: "Upload failed",
-        description: errorMsg,
+        description: (
+          <div>
+            <p>{errorMsg}</p>
+            <p className="mt-2">
+              <a
+                href="/documents/test"
+                className="underline text-blue-500"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Run diagnostics
+              </a>
+            </p>
+          </div>
+        ),
         variant: "destructive",
       });
     }

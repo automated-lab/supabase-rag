@@ -18,27 +18,58 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    console.log(`Fetching document with ID: ${params.id}`);
+
     // Await the entire params object first
     const resolvedParams = await Promise.resolve(params);
     const id = resolvedParams.id;
 
-    // Get document data
-    const document = await getDocumentById(id);
-    if (!document) {
+    if (!id) {
+      console.error("Document ID is missing or invalid");
       const errorResponse = NextResponse.json(
-        { error: "Document not found" },
-        { status: 404 }
+        { error: "Invalid document ID" },
+        { status: 400 }
       );
       return applyCorsHeaders(errorResponse, request);
     }
 
-    // Return the document data with CORS headers
-    const response = NextResponse.json(document);
-    return applyCorsHeaders(response, request);
+    // Get document data
+    try {
+      const document = await getDocumentById(id);
+
+      if (!document) {
+        console.error(`Document not found with ID: ${id}`);
+        const errorResponse = NextResponse.json(
+          { error: "Document not found" },
+          { status: 404 }
+        );
+        return applyCorsHeaders(errorResponse, request);
+      }
+
+      console.log(`Successfully fetched document: ${document.title}`);
+
+      // Return the document data with CORS headers
+      const response = NextResponse.json(document);
+      return applyCorsHeaders(response, request);
+    } catch (docError) {
+      console.error(`Error in getDocumentById for ID ${id}:`, docError);
+      const errorResponse = NextResponse.json(
+        {
+          error: "Failed to fetch document",
+          details:
+            docError instanceof Error ? docError.message : String(docError),
+        },
+        { status: 500 }
+      );
+      return applyCorsHeaders(errorResponse, request);
+    }
   } catch (error) {
-    console.error("Error fetching document:", error);
+    console.error("Unexpected error in document API route:", error);
     const errorResponse = NextResponse.json(
-      { error: "Failed to fetch document" },
+      {
+        error: "Failed to fetch document",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     );
     return applyCorsHeaders(errorResponse, request);
