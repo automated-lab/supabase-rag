@@ -6,21 +6,29 @@ import { getFileTypeFromName } from "@/lib/langchain/document-loaders";
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("Document upload API called");
+
     // Get the document data from the request
     const { title, fileName, fileContent } = await request.json();
 
     if (!title || !fileName || !fileContent) {
+      console.error("Missing required fields in upload request");
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
+    console.log(
+      `Processing upload for ${fileName} (${fileContent.length} bytes)`
+    );
+
     // Convert base64 to buffer
     const buffer = Buffer.from(fileContent, "base64");
 
     // Determine file type from file name
     const fileType = getFileTypeFromName(fileName);
+    console.log(`Detected file type: ${fileType}`);
 
     // Sanitize the filename
     const sanitizedFileName = fileName
@@ -28,12 +36,14 @@ export async function POST(request: NextRequest) {
       .replace(/[^a-zA-Z0-9_.-]/g, "");
 
     // Initialize storage if needed
+    console.log("Initializing storage");
     await initializeStorage();
 
     // Create a Supabase client
     const supabase = createClient();
 
     // Insert the document with minimal metadata first
+    console.log("Inserting document record into database");
     const { data: document, error: docError } = await supabase
       .from("documents")
       .insert({
@@ -60,15 +70,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log(`Document created with ID: ${document.id}`);
+
     // Upload the original file to storage
     try {
+      console.log("Uploading file to storage");
       const fileUrl = await uploadDocumentToStorage(
         fileName,
         buffer,
         document.id
       );
+      console.log(`File uploaded successfully, URL: ${fileUrl}`);
 
       // Update the document with the file URL
+      console.log("Updating document with file URL");
       await supabase
         .from("documents")
         .update({
@@ -80,7 +95,11 @@ export async function POST(request: NextRequest) {
         })
         .eq("id", document.id);
 
-      // Return success response
+      // Instead of calling the Edge Function directly, we'll let the client handle it
+      // This avoids the complexity of authentication in the server-side code
+
+      // Return success response with the document ID
+      console.log("Document upload completed successfully");
       return NextResponse.json({
         success: true,
         message: "Document uploaded successfully",

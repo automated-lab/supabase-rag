@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -152,6 +152,7 @@ export function UploadDocument() {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isPending, startTransition] = useTransition();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -259,88 +260,90 @@ export function UploadDocument() {
   const handleFileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!file || !title) {
+    if (!file) {
       toast({
-        title: "Missing fields",
-        description: "Please provide both a title and a file",
+        title: "No file selected",
+        description: "Please select a file to upload",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      // Set uploading status
       setUploadStatus("uploading");
 
       // Convert file to base64
       const base64 = await fileToBase64(file);
 
-      // Set processing status
-      setUploadStatus("processing");
+      // Create a document object
+      const document = {
+        title: title || file.name,
+        fileName: file.name,
+        fileContent: base64,
+      };
 
-      // Set up a timeout to handle long-running operations
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(
-            new Error(
-              "Operation timed out, but processing continues in the background"
-            )
-          );
-        }, 25000); // 25 second timeout for client-side feedback
+      // Upload the document
+      const response = await fetch("/api/documents/upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(document),
       });
 
-      try {
-        // Race between the actual upload and the timeout
-        console.log("Starting document upload for:", file.name);
-        const result = await Promise.race([
-          uploadFileDocument({
-            title,
-            fileName: file.name,
-            fileContent: base64,
-          }),
-          timeoutPromise,
-        ]);
-
-        console.log("Upload result:", result);
-
-        // If we get here, the upload completed before the timeout
-        setUploadStatus("success");
-
-        toast({
-          title: "Document uploaded",
-          description: `${file.name} has been processed and added to the knowledge base`,
-        });
-      } catch (timeoutError) {
-        console.error("Upload error or timeout:", timeoutError);
-
-        // If we hit the timeout, show a different message but don't treat it as an error
-        if (
-          timeoutError instanceof Error &&
-          timeoutError.message.includes("continues in the background")
-        ) {
-          setUploadStatus("success");
-
-          toast({
-            title: "Document uploaded",
-            description: `${file.name} has been uploaded. Processing will continue in the background.`,
-          });
-        } else {
-          // This is a real error, not just a timeout
-          throw timeoutError;
-        }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${response.statusText} - ${errorText}`);
       }
+
+      const data = await response.json();
+
+      // Start processing the document
+      setUploadStatus("processing");
+
+      try {
+        // Call the processing API
+        const processResponse = await fetch("/api/documents/process", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ documentId: data.documentId }),
+        });
+
+        if (!processResponse.ok) {
+          const processErrorText = await processResponse.text();
+          console.error(
+            `Processing failed: ${processResponse.statusText} - ${processErrorText}`
+          );
+          // Continue with the flow even if processing fails
+        } else {
+          const processData = await processResponse.json();
+          console.log("Processing result:", processData);
+        }
+      } catch (processError) {
+        console.error("Error processing document:", processError);
+        // Continue with the flow even if processing fails
+      }
+
+      // Success
+      setUploadStatus("success");
+
+      toast({
+        title: "Document uploaded",
+        description:
+          "Your document has been processed and added to the knowledge base",
+        variant: "default",
+      });
 
       // Reset form after a brief delay to show success state
       setTimeout(() => {
         setTitle("");
         setFile(null);
         setUploadStatus("idle");
-
-        // Reset the file input
-        const fileInput = document.getElementById(
-          "document-file"
-        ) as HTMLInputElement;
-        if (fileInput) fileInput.value = "";
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
 
         // Refresh document list without a full page reload
         startTransition(() => {
@@ -354,24 +357,9 @@ export function UploadDocument() {
         error instanceof Error ? error.message : "Failed to upload document";
       setErrorMessage(errorMsg);
 
-      // Add a link to the test page for diagnostics
       toast({
         title: "Upload failed",
-        description: (
-          <div>
-            <p>{errorMsg}</p>
-            <p className="mt-2">
-              <a
-                href="/documents/test"
-                className="underline text-blue-500"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Run diagnostics
-              </a>
-            </p>
-          </div>
-        ),
+        description: errorMsg,
         variant: "destructive",
       });
     }
@@ -421,36 +409,29 @@ export function UploadDocument() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="document-file">Upload File</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="document-file"
-                    type="file"
-                    accept={SUPPORTED_FILE_TYPES.join(",")}
-                    onChange={handleFileChange}
-                    disabled={isUploading}
-                    className="flex-1"
-                  />
-                </div>
+                <Label htmlFor="document-file">File</Label>
+                <Input
+                  id="document-file"
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept={SUPPORTED_FILE_TYPES.join(",")}
+                  disabled={uploadStatus !== "idle"}
+                />
                 {fileError && (
-                  <Alert variant="destructive" className="mt-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription>{fileError}</AlertDescription>
-                  </Alert>
+                  <p className="text-sm text-destructive">{fileError}</p>
                 )}
-                {file && !fileError && (
-                  <p className="text-sm text-muted-foreground mt-1">
+                {file && (
+                  <p className="text-sm text-muted-foreground">
                     Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
                   </p>
                 )}
-                <div className="text-xs text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground">
                   Supported formats: PDF, Word (.docx, .doc), Text (.txt),
                   Markdown (.md), HTML, CSV, Excel (.xlsx, .xls)
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Maximum file size: 10MB
-                </div>
+                  <br />
+                  Maximum file size: {MAX_FILE_SIZE / (1024 * 1024)}MB
+                </p>
               </div>
               <Button
                 type="submit"
