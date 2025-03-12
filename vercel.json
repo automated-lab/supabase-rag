@@ -56,6 +56,9 @@
     "app/api/documents/**/*": {
       "maxDuration": 60
     },
+    "app/api/documents/process/route.ts": {
+      "maxDuration": 60
+    },
     "app/api/chat/**/*": {
       "maxDuration": 60
     }

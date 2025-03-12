@@ -43,6 +43,9 @@ type Document = {
     fileName?: string;
     size?: number;
     pageCount?: number;
+    processingStatus?: string;
+    processingProgress?: number;
+    processingError?: string;
   };
 };
 
@@ -249,6 +252,46 @@ export function DocumentList() {
                       ` (${(doc.metadata.size / 1024).toFixed(1)} KB)`}
                   </div>
                 )}
+                {doc.metadata?.processingStatus &&
+                  doc.metadata.processingStatus !== "complete" && (
+                    <div className="mt-2">
+                      <Badge variant="outline" className="gap-1 text-xs">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {doc.metadata.processingStatus === "pending" &&
+                          "Pending processing"}
+                        {doc.metadata.processingStatus === "uploaded" &&
+                          "Uploaded, waiting to process"}
+                        {doc.metadata.processingStatus === "processing" &&
+                          "Processing document"}
+                        {doc.metadata.processingStatus === "chunking" &&
+                          "Chunking content"}
+                        {doc.metadata.processingStatus === "embedding" &&
+                          "Generating embeddings"}
+                        {doc.metadata.processingStatus.startsWith(
+                          "processed"
+                        ) && doc.metadata.processingStatus}
+                        {doc.metadata.processingStatus === "error" &&
+                          "Processing failed"}
+                      </Badge>
+                      {doc.metadata.processingProgress !== undefined &&
+                        doc.metadata.processingProgress > 0 &&
+                        doc.metadata.processingProgress < 100 && (
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                            <div
+                              className="bg-primary h-1.5 rounded-full"
+                              style={{
+                                width: `${doc.metadata.processingProgress}%`,
+                              }}
+                            ></div>
+                          </div>
+                        )}
+                      {doc.metadata.processingError && (
+                        <div className="text-xs text-destructive mt-1">
+                          Error: {doc.metadata.processingError}
+                        </div>
+                      )}
+                    </div>
+                  )}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" asChild>

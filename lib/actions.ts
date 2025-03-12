@@ -180,32 +180,23 @@ export async function uploadFileDocument({
       .replace(/\s+/g, "_")
       .replace(/[^a-zA-Z0-9_.-]/g, "");
 
-    // 4. Parse document to extract text using LangChain
-    console.log(`Parsing ${fileType} document: ${fileName}`);
-    const { text: extractedText, metadata } = await parseDocument(
-      buffer,
-      fileType
-    );
-
-    // Apply text normalization to fix common OCR issues like missing spaces
-    const normalizedText = normalizeDocumentText(extractedText);
-
-    // 5. Initialize storage if needed
+    // 4. Initialize storage if needed
     await initializeStorage();
 
-    // 6. Insert the document with metadata
+    // 5. Insert the document with minimal metadata first
     const { data: document, error: docError } = await supabase
       .from("documents")
       .insert({
         title,
-        content: normalizedText,
+        content: "", // We'll update this after processing
         metadata: {
           type: fileType,
           fileName: fileName,
           sanitizedFileName: sanitizedFileName,
           size: buffer.length,
-          processingStatus: "processing", // Add processing status
-          ...metadata,
+          processingStatus: "pending", // Mark as pending
+          processingProgress: 0,
+          uploadedAt: new Date().toISOString(),
         },
       })
       .select()
@@ -216,150 +207,92 @@ export async function uploadFileDocument({
       throw new Error(`Failed to upload ${fileType} document`);
     }
 
-    // 7. Upload the original file to storage
+    // 6. Upload the original file to storage
     const fileUrl = await uploadDocumentToStorage(
       fileName,
       buffer,
       document.id
     );
 
-    // 8. Update the document with the file URL
+    // 7. Update the document with the file URL
     await supabase
       .from("documents")
       .update({
         metadata: {
           ...document.metadata,
           fileUrl,
+          processingStatus: "uploaded", // Mark as uploaded, ready for processing
         },
       })
       .eq("id", document.id);
 
-    // 9. Process content into chunks using LangChain
-    console.log(`Processing document ${document.id} into chunks...`);
-    const chunks = await processDocumentIntoChunks(normalizedText);
-    console.log(`Created ${chunks.length} chunks for document ${document.id}`);
+    // 8. Trigger background processing via webhook
+    // This is a non-blocking call that will return immediately
+    triggerDocumentProcessing(document.id)
+      .then(() =>
+        console.log(`Processing triggered for document ${document.id}`)
+      )
+      .catch((err) =>
+        console.error(
+          `Failed to trigger processing for document ${document.id}:`,
+          err
+        )
+      );
 
-    // 10. Generate embeddings and store chunks - process in smaller batches
-    const BATCH_SIZE = 1; // Reduce batch size from 3 to 1 to avoid timeouts
-    let successCount = 0;
-    let retryCount = 0;
-    const MAX_RETRIES = 3;
-
-    // Process chunks in batches to avoid timeouts
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batchChunks = chunks.slice(i, i + BATCH_SIZE);
-
-      // Add retry logic for the entire batch
-      let batchSuccess = false;
-      let batchAttempts = 0;
-
-      while (!batchSuccess && batchAttempts < MAX_RETRIES) {
-        try {
-          // Process each chunk in the batch
-          const batchPromises = batchChunks.map(async (chunk) => {
-            try {
-              const embedding = await generateEmbedding(chunk.pageContent);
-
-              const { data, error } = await supabase.from("chunks").insert({
-                document_id: document.id,
-                content: chunk.pageContent,
-                embedding,
-                metadata: {
-                  ...(chunk.metadata || {}),
-                  document_id: document.id,
-                  fileName,
-                  fileType,
-                },
-              });
-
-              if (error) {
-                console.error("Error inserting chunk:", error);
-                return false;
-              }
-              return true;
-            } catch (error) {
-              console.error("Error processing chunk:", error);
-              return false;
-            }
-          });
-
-          // Wait for the current batch to complete
-          const batchResults = await Promise.all(batchPromises);
-          const batchSuccessCount = batchResults.filter(Boolean).length;
-          successCount += batchSuccessCount;
-
-          // If all chunks in this batch were processed successfully
-          if (batchSuccessCount === batchChunks.length) {
-            batchSuccess = true;
-          } else {
-            // If some chunks failed, increment attempt counter and try again
-            batchAttempts++;
-            console.log(
-              `Batch partially failed, retry attempt ${batchAttempts}/${MAX_RETRIES}`
-            );
-            // Add a small delay before retrying
-            await new Promise((resolve) =>
-              setTimeout(resolve, 1000 * batchAttempts)
-            );
-          }
-        } catch (error) {
-          batchAttempts++;
-          console.error(
-            `Batch processing error, retry attempt ${batchAttempts}/${MAX_RETRIES}:`,
-            error
-          );
-          // Add a small delay before retrying
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * batchAttempts)
-          );
-        }
-      }
-
-      // Update processing status after each batch (successful or not)
-      await supabase
-        .from("documents")
-        .update({
-          metadata: {
-            ...document.metadata,
-            fileUrl,
-            processingStatus: `processed ${successCount} of ${chunks.length} chunks`,
-            processingProgress: Math.round(
-              (successCount / chunks.length) * 100
-            ),
-          },
-        })
-        .eq("id", document.id);
-
-      // Add a small delay between batches to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-
-    // Final update to mark processing as complete
-    await supabase
-      .from("documents")
-      .update({
-        metadata: {
-          ...document.metadata,
-          fileUrl,
-          processingStatus: "complete",
-          processingProgress: 100,
-          totalChunks: chunks.length,
-          successfulChunks: successCount,
-        },
-      })
-      .eq("id", document.id);
-
-    console.log(
-      `Successfully processed ${successCount} of ${chunks.length} chunks for document ${document.id}`
-    );
-
+    // 9. Return the document immediately
     revalidatePath("/documents");
     return document;
   } catch (error) {
-    console.error("Error processing document:", error);
+    console.error("Error uploading document:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Failed to process document: ${errorMessage}`);
+    throw new Error(`Failed to upload document: ${errorMessage}`);
+  }
+}
+
+// New function to trigger document processing in the background
+async function triggerDocumentProcessing(documentId: string) {
+  try {
+    // Use the Supabase URL from environment variables
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    if (!supabaseUrl) {
+      throw new Error("NEXT_PUBLIC_SUPABASE_URL is not defined");
+    }
+
+    // Create a URL for the Supabase Edge Function
+    const functionUrl = `${supabaseUrl}/functions/v1/process_document`;
+
+    // Get a short-lived token for authentication
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    // Make a POST request to the Supabase Edge Function
+    const response = await fetch(functionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session?.access_token || ""}`,
+        // Add Supabase-specific headers
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+      },
+      body: JSON.stringify({ documentId }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Failed to trigger processing: ${response.statusText} - ${errorText}`
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error triggering document processing:", error);
+    // Don't throw here - we want to return the document even if processing trigger fails
+    return false;
   }
 }
 

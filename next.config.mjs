@@ -31,6 +31,10 @@ const nextConfig = {
     // number of pages that should be kept simultaneously without being disposed
     pagesBufferLength: 2,
   },
+  // Increase serverless function timeout
+  serverRuntimeConfig: {
+    maxDuration: 60, // 60 seconds (maximum allowed by Vercel)
+  },
 };
 
 export default nextConfig;
