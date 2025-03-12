@@ -64,11 +64,8 @@ serve(async (req) => {
     }
 
     console.log("Creating Supabase client");
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: {
-        headers: { Authorization: req.headers.get("Authorization") || "" },
-      },
-    });
+    // Use service role key directly for testing purposes
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // 1. Get the document from the database
     console.log("Fetching document from database");
