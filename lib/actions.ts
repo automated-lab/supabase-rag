@@ -257,17 +257,23 @@ async function triggerDocumentProcessing(documentId: string) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
     if (!supabaseUrl) {
-      throw new Error("NEXT_PUBLIC_SUPABASE_URL is not defined");
+      console.error("NEXT_PUBLIC_SUPABASE_URL is not defined");
+      return false;
     }
 
     // Create a URL for the Supabase Edge Function
     const functionUrl = `${supabaseUrl}/functions/v1/process_document`;
+    console.log(`Calling Edge Function at: ${functionUrl}`);
 
     // Get a short-lived token for authentication
     const supabase = createClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      console.warn("No auth session available for document processing");
+    }
 
     // Make a POST request to the Supabase Edge Function
     const response = await fetch(functionUrl, {
@@ -283,15 +289,47 @@ async function triggerDocumentProcessing(documentId: string) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(
-        `Failed to trigger processing: ${response.statusText} - ${errorText}`
-      );
+      console.error(`Edge function error (${response.status}): ${errorText}`);
+
+      // Update document with error status
+      await supabase
+        .from("documents")
+        .update({
+          metadata: {
+            processingStatus: "error",
+            processingError: `Processing failed to start: ${response.statusText}`,
+            errorTimestamp: new Date().toISOString(),
+          },
+        })
+        .eq("id", documentId);
+
+      return false;
     }
 
     return true;
   } catch (error) {
     console.error("Error triggering document processing:", error);
-    // Don't throw here - we want to return the document even if processing trigger fails
+
+    // Try to update the document with error information
+    try {
+      const supabase = createClient();
+      await supabase
+        .from("documents")
+        .update({
+          metadata: {
+            processingStatus: "error",
+            processingError:
+              error instanceof Error
+                ? error.message
+                : "Unknown error triggering processing",
+            errorTimestamp: new Date().toISOString(),
+          },
+        })
+        .eq("id", documentId);
+    } catch (updateError) {
+      console.error("Failed to update document error status:", updateError);
+    }
+
     return false;
   }
 }
