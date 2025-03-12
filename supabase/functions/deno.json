@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "checkJs": false,
+    "noImplicitAny": false
+  },
+  "lint": {
+    "files": {
+      "exclude": ["**/*.js", "**/*.ts"]
+    }
+  },
+  "importMap": "./import_map.json"
+} 

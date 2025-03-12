@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "serve": {
+      "port": 54321
+    },
+    "deploy": {
+      "functions": {
+        "documents": {
+          "timeout": 60,
+          "memory": 1024
+        },
+        "documents/[id]": {
+          "timeout": 60,
+          "memory": 1024
+        },
+        "documents/download/[id]": {
+          "timeout": 60,
+          "memory": 1024
+        }
+      }
+    }
+  }
+} 
