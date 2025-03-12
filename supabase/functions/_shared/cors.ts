@@ -17,12 +17,11 @@ const allowedOrigins = [
 // Log the allowed origins for debugging
 console.log("Supabase Edge Function CORS Allowed Origins:", allowedOrigins);
 
-// CORS headers to apply
+// CORS headers to apply - more permissive for development
 export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*", // This will be overridden in the function
+  "Access-Control-Allow-Origin": "*", // Allow all origins for now
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, apikey, x-supabase-client",
+  "Access-Control-Allow-Headers": "*", // Allow all headers
   "Access-Control-Allow-Credentials": "true",
   "Access-Control-Max-Age": "86400", // 24 hours
 };
@@ -31,17 +30,9 @@ export const corsHeaders = {
  * Apply CORS headers to a response
  */
 export function applyCorsHeaders(response: Response, request: Request) {
-  const origin = request.headers.get("origin") || "";
-  console.log("Supabase Edge Function Request origin:", origin);
-
-  const isAllowedOrigin =
-    allowedOrigins.includes(origin) ||
-    allowedOrigins.includes("*") ||
-    origin.endsWith(".vercel.app");
-
-  const allowedOrigin = isAllowedOrigin ? origin : allowedOrigins[0] || "*";
-
-  response.headers.set("Access-Control-Allow-Origin", allowedOrigin);
+  // For development, we'll just use the wildcard origin
+  // In production, you'd want to be more specific
+  response.headers.set("Access-Control-Allow-Origin", "*");
   response.headers.set(
     "Access-Control-Allow-Methods",
     corsHeaders["Access-Control-Allow-Methods"]
